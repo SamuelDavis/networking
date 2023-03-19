@@ -1,6 +1,6 @@
 import type { DataConnection } from "peerjs";
 import Peer from "peerjs";
-import { actions, client, connections } from "./store";
+import { client, connections } from "./store";
 import { get } from "svelte/store";
 
 const peerId =
@@ -59,22 +59,42 @@ function initializeConnection(connection: DataConnection) {
     );
   });
   connection.on("data", (data: any) => {
+    if (!isAction(data)) return;
+
     const action = { ...data, date: new Date(data.date) };
-    actions.update((actions) => [action, ...actions]);
+    const { type, payload } = action;
+
+    switch (type) {
+      case "peers":
+        payload.forEach(connectTo);
+        break;
+    }
   });
 }
 
-export type Action = {
-  type: string;
-  payload: any;
+interface ActionTypePayloadMap {
+  peers: DataConnection["peer"][];
+}
+
+type Action<T extends keyof ActionTypePayloadMap> = {
+  type: T;
+  payload: ActionTypePayloadMap[T];
   date: Date;
   source: Peer["id"];
 };
 
-export function createAction(type: string, payload: any): Action {
-  return { type, payload, date: new Date(), source: _peer.id };
+function isAction<T extends keyof ActionTypePayloadMap>(value: {
+  type: T;
+}): value is Action<T> {
+  return (
+    typeof value === "object" &&
+    ["type", "payload", "date", "source"].every((prop) => prop in value)
+  );
 }
 
-export function dispatch(action: Action) {
-  actions.update((actions) => [action, ...actions]);
+function createAction<T extends keyof ActionTypePayloadMap>(
+  type: T,
+  payload: ActionTypePayloadMap[T]
+): Action<T> {
+  return { type, payload, date: new Date(), source: _peer.id };
 }
