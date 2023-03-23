@@ -1,4 +1,4 @@
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, on } from "solid-js";
 import Peer, { type DataConnection } from "peerjs";
 import { isNetworkMessage, type NetworkMessage } from "./types";
 
@@ -14,32 +14,52 @@ export const store = createRoot(() => {
   );
   peer.on("open", () => setPeer(peer));
   peer.on("connection", initConnection);
-  const [getPeer, setPeer] = createSignal<Peer>(new Peer());
+  const [, setPeer] = createSignal<Peer>(new Peer());
   const [getConnections, setConnections] = createSignal<DataConnection[]>([]);
   const [getData, setData] = createSignal<NetworkMessage[]>([]);
 
+  function processData(data: NetworkMessage) {
+    const { type, payload } = data;
+    switch (type) {
+      case "peers":
+        const peers = getPeers();
+        (payload as DataConnection["peer"][])
+          .filter((peer) => !peers.includes(peer))
+          .forEach(addConnection);
+        break;
+    }
+  }
+
   function getId() {
-    return getPeer().id;
+    return peer.id;
   }
 
   function getPeers() {
     return getConnections().map((connection) => connection.peer);
   }
 
-  function addConnection(peer: DataConnection["peer"]) {
-    const connection = getPeer().connect(peer);
-    initConnection(connection);
+  function addConnection(id: DataConnection["peer"]) {
+    initConnection(peer.connect(id));
   }
 
   function initConnection(connection: DataConnection) {
     const timeout = setTimeout(() => {
       connection.close();
-      console.error(`Failed to connect ${getPeer().id} to ${connection.peer}.`);
+      console.error(`Failed to connect ${peer.id} to ${connection.peer}.`);
     }, 3000);
 
     connection.on("open", () => {
       clearTimeout(timeout);
-      setConnections((prev) => [...prev, connection]);
+      setConnections((prev) => {
+        if (prev.length)
+          connection.send({
+            type: "peers",
+            payload: prev.map((connection) => connection.peer),
+            date: new Date(),
+            source: peer.id,
+          });
+        return [...prev, connection];
+      });
     });
 
     connection.on("close", () => {
@@ -51,8 +71,11 @@ export const store = createRoot(() => {
     });
 
     connection.on("data", (data) => {
-      if (isNetworkMessage(data)) return setData((prev) => [...prev, data]);
-      else
+      if (isNetworkMessage(data)) {
+        const hydrated = { ...data, date: new Date(data.date) };
+        processData(hydrated);
+        return setData((prev) => [...prev, hydrated]);
+      } else
         console.error(
           `Received malformed data from ${connection.peer}: ${JSON.stringify(
             data
