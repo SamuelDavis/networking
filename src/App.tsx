@@ -1,63 +1,82 @@
 import Peer, { DataConnection } from "peerjs";
-import { For } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createEffect, createSignal, For, onCleanup, onMount } from "solid-js";
 
-type State = {
-  id: string;
-  connections: DataConnection[];
-};
 export default function App() {
-  const [state, setState] = createStore<State>({ id: "", connections: [] });
-  const peer = new Peer(window.location.hash.slice(1));
-  peer.on("open", (id) =>
-    setState((state) => ({ ...state, id, connections: [] })),
-  );
-  peer.on("close", () =>
-    setState((state) => ({ ...state, id: "", connections: [] })),
-  );
-  peer.on("disconnected", () =>
-    setState((state) => ({ ...state, id: "", connections: [] })),
-  );
-  peer.on("error", (error) => console.error(error));
-  peer.on("connection", initializeConnection);
+  const [getPeer, setPeer] = createSignal<undefined | Peer>();
+  const [getConnections, setConnections] = createSignal<DataConnection[]>([]);
 
-  function initializeConnection(connection: DataConnection): void {
-    if (connection.peer === state.id) return;
-    if (state.connections.some((existing) => existing.peer === connection.peer))
-      return;
+  createEffect(() => {
+    const connections = getConnections();
+    const peers = connections.map((connection) => connection.peer);
+    for (const connection of connections) connection.send(peers);
+  });
 
-    connection.on("error", (error) => console.error(error));
-    connection.on("open", () => {
-      setState(
-        produce((state) => {
-          state.connections = [...state.connections, connection];
-        }),
-      );
+  onMount(() => {
+    const peer = new Peer(window.location.hash.slice(1), {
+      host: "localhost",
+      port: 8080,
     });
-    connection.on("close", () => {
-      setState(
-        produce((state) => {
-          state.connections = state.connections.filter(
-            (existing) => existing.peer !== connection.peer,
+    peer.on("open", () => {
+      setPeer(peer);
+      setConnections([]);
+    });
+    peer.on("close", () => {
+      setPeer(undefined);
+      setConnections([]);
+    });
+    peer.on("disconnected", () => {
+      setPeer(undefined);
+      setConnections([]);
+    });
+    peer.on("error", (error) => console.error(error));
+    peer.on("connection", initializeConnection);
+
+    onCleanup(() => {
+      peer.destroy();
+    });
+  });
+
+  function initializeConnection(connection: string | DataConnection): void {
+    if (typeof connection === "string") {
+      const peer = getPeer();
+      if (!connection || !peer || connection === peer.id) return;
+      return initializeConnection(peer.connect(connection));
+    }
+
+    connection.on("open", () => {
+      setConnections((connections) => {
+        if (connections.some((existing) => existing.peer === connection.peer)) {
+          connection.close();
+          return connections;
+        }
+
+        connection.on("error", (error) => console.error(error));
+        connection.on("close", () => {
+          setConnections((connections) =>
+            connections.filter((existing) => existing.peer !== connection.peer),
           );
-        }),
-      );
+        });
+        connection.on("data", (data) => {
+          if (Array.isArray(data))
+            for (const peer of data) initializeConnection(peer);
+        });
+        return [...connections, connection];
+      });
     });
   }
 
   function onCopyId() {
-    navigator.clipboard.writeText(state.id);
+    navigator.clipboard.writeText(getPeer()?.id ?? "");
   }
 
   function onConnect() {
-    const id = prompt("ID:") ?? "";
-    if (id) initializeConnection(peer.connect(id));
+    initializeConnection(prompt("ID:") ?? "");
   }
 
   return (
     <main>
       <header>
-        <output>{state.id}</output>
+        <output>{getPeer()?.id}</output>
         <button onClick={onCopyId}>Copy</button>
       </header>
       <section>
@@ -74,7 +93,7 @@ export default function App() {
             </tr>
           </thead>
           <tbody>
-            <For each={state.connections}>
+            <For each={getConnections()}>
               {(connection) => (
                 <tr>
                   <td>{connection.connectionId}</td>
