@@ -1,0 +1,22 @@
+{
+  "name": "networking",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "serve": "peerjs --port 8080"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.4",
+    "solid-js": "^1.9.3"
+  },
+  "devDependencies": {
+    "peer": "^1.0.2",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.5",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}
